@@ -30,6 +30,7 @@ mapa_pennalolen <- filter(mapa_pennalolen, DPTO_CASA==0)
 mean(mapa_pennalolen$Score)
 mapa_pennalolen <-subset(mapa_pennalolen, select = -c(1)) #se elimina score por tener el mismo valor en todas las variables
 
+precio <- mapa_pennalolen %>% select( UF_TRANS) %>% st_drop_geometry()
 precio_casa <- mapa_pennalolen %>% select( UF_TRANS, Ten_Metro,Ten_MetroC) %>% st_drop_geometry()
 precio_casa_cole <- mapa_pennalolen %>% select( UF_TRANS, COLE_10MIN,COLE_15MIN) %>% st_drop_geometry()
 ```
@@ -58,9 +59,16 @@ Para ver esto, se tomaron los datos y se eliminaron las distintas columnas que n
 
 ## Datos {.unnumbered}
 
-Como primer paso, se hizo una segmentación de los datos utilizando kmeans, y un $k=10$ para crear 10 clusters, en donde se toma como variables el precio de las casas, la cercanía a un metro a menos de 15 min, y la cercanía a menos de 5 min. Esto se puede ver en el gráfico \@ref(fig:clus1)
+Como primer paso, se hizo una segmentación de los datos utilizando kmeans, y un $k=10$ para crear 10 clusters, en donde se toma como variables el precio de las casas, que se puede ver en el gráfico \@ref(fig:clus) y luego aplicar otra segmentación con el precio de las casas, la cercanía a un metro a menos de 15 min, y la cercanía a menos de 5 min. Esto se puede ver en el gráfico \@ref(fig:clus1)
 
-```{r clus1,fig.cap="Cluster inicial",echo=FALSE}
+```{r clus,fig.cap="Cluster precio",fig.align='center',echo=FALSE}
+clusters_k <-kmeans(precio,10)
+mapa_pennalolen$cluster_k <- as.factor(clusters_k$cluster)
+ggplot(mapa_pennalolen) +
+  geom_sf(aes(fill = cluster_k,color=cluster_k))+labs(fill="Clusters",color="Clusters")
+```
+
+```{r clus1,fig.cap="Cluster inicial metro",fig.align='center',echo=FALSE}
 clusters_k2 <- kmeans(precio_casa, 10)
 
 # creamos la variable cluster en el conjunto nc
@@ -73,7 +81,7 @@ ggplot(mapa_pennalolen) +
 
 Como se puede ver, la segmentación no es muy efectiva ya que los clusters no son tan equitativos, esto se puede dar por la diferencia de valores en el precio mayoritariamente, ya que el valor mínimo de UF es 215, y el mayor 46.987, lo cual causa una gran diferencia, y es por esto que muchos datos se agrupan en un par de clusters, por lo que se decide escalar los datos para que puedan estar más equilibrados, y esto se puede ver en el gráfico \@ref(fig:clus2)
 
-```{r clus2,fig.cap="Cluster escalado metro",echo=FALSE}
+```{r clus2,fig.cap="Cluster escalado metro",fig.align='center',echo=FALSE}
 scaled_precio_casa <- scale(precio_casa)
 
 clusters_k_sc2 <- kmeans(scaled_precio_casa, 10)
@@ -88,7 +96,7 @@ En este caso, se ve que también existe una disparidad entre los clusters, siend
 
 Luego de esto, se procede a hacer segmentación de los datos por distancia a un colegio, para revisar cómo cambian los clusters al analizar esta variable vs cercanía a metro. Se hizo el mismo procedimiento de escalar los datos, para luego aplicar kmeans con el mismo k anterior. Esto se puede ver en el gráfico \@ref(fig:clus3)
 
-```{r clus3,fig.cap="Cluster por cercanía colegio",echo=FALSE}
+```{r clus3,fig.cap="Cluster por cercanía colegio",fig.align='center',echo=FALSE}
 scaled_precio_casa_cole <- scale(precio_casa_cole)
 
 clusters_k_sc_cole <- kmeans(scaled_precio_casa_cole, 10)
@@ -99,10 +107,32 @@ ggplot(mapa_pennalolen) +
   geom_sf(aes(fill = cluster_kmeans_sc_cole,color=cluster_kmeans_sc_cole))+labs(fill="Clusters",color="Clusters")
 ```
 
-Al analizar los clusters, se puede ver que la segmentación es bien parecida a la creada por las cercanías al metro, por lo que se podría decir que tienen un peso parecido al momento de dictar el precio de una casa.
+Al analizar los clusters, se puede ver que la segmentación es bien parecida a la creada por las cercanías al metro.
 
 Por último se crea un gráfico de densidad del índice local de moran para las casas, el cual ya está calculado previamente en los datos utilizados, para poder analizar la variación de este índice, y ver cuál es el valor que se repite más. Esto se puede ver en el gráfico \@ref(fig:moran)
 
-```{r moran, fig.cap="Densidad indice de Moran",echo=FALSE}
+```{r moran, fig.cap="Densidad indice de Moran",fig.align='center',echo=FALSE}
 plot(density(mapa_pennalolen$IMORANCASA),main="Densidad indice de Moran")
 ```
+
+Al ver este gráfico, se puede ver que la mayoría de los datos se encuentran en el rango de $[0.0,0.5]$, y si bien existen valores mayores a 1, 69 valores para ser exacto, podemos analizar el gráfico \@ref(fig:moran2) que muestra el gráfico de densidad de Moran al eliminar estos valores, para dejar el rango entre $[-1,1]$.
+
+```{r moran2, fig.cap="Densidad indice de Moran Ajustado",fig.align='center',echo=FALSE}
+moran <- mapa_pennalolen$IMORANCASA
+out <- moran>1
+plot(density(moran[out==FALSE]),main="Densidad indice de Moran")
+```
+
+## Análisis {.unnumbered}
+
+Analizando en primera ocasión la relevancia de la cercanía del metro, se puede ver que claramente existe una similitud entre el gráfico \@ref(fig:clus) y el gráfico \@ref(fig:clus1) ya que las segmentaciones creadas son parecidas, lo que podría denominar que el factor de cercanía al metro no tiene tanta importancia como se pensó originalmente, o que el factor precio es mucho más importante en las segmentaciones que esperado, y se puede ver que al escalar los datos, como en el gráfico \@ref(fig:clus2) que se ve una segmentación más clara y equitativa, por lo que el modelo se puede estar equivocando en el gráfico \@ref(fig:clus1). Por otro lado, el gráfico \@ref(fig:clus2) y el gráfico \@ref(fig:clus3) tienen una alta similitud como se mencionó anteriormente, lo que podría significar que tienen una significancia parecida al momento de declarar el precio de una casa. 
+
+Si analizamos el gráfico \@ref(fig:moran2) se puede ver que la mayoría de los datos se concentran en los valores que se encuentran en el rango de $[0,0.2]$ lo que significaría que no existe mucha correlación espacial entre la mayoría de las casas de Peñalolen. Sin embargo, existen 188 datos que se encuentran entre 0.8 y 1, lo que significa que de igual manera existen unos cuantos valores que tienen alta correlación espacial, pero no son una cifra significativa como para declarar que en todo Peñalolen existe una alta correlación espacial entre los precios de las casas. De igual manera, en los datos utilizados para el gráfico \@ref(fig:moran2), existe una media de 0.2167 lo que significa que en promedio, la correlación espacial es baja. 
+
+## Conclusiones {.unnumbered}
+
+Tomando en cuenta lo visto en el análisis, se puede ver que tanto la cercanía a un establecimiento educacional como la cercanía a un metro, influyen de la misma manera al momento de declarar el precio de una casa en Peñalolen, pero que de igual manera el peso que estas variables tiene no es tan significativo como para atribuir completamente el precio a estas, y se deberían analizar más variables, o analizar de mejor manera el modelo de segmentación.
+
+Por otro lado, al ver solamente la segmentación por precio, se ve que existe una disparidad grande en los clusters, esto se ve como fue mencionado anteriormente, por la desigualdad que existe en Peñalolen, evidenciado por su coeficiente GINI de 0.5, y esto afecta en la segmentación al tener valores muy altos y muy bajos, por lo que se debería revisar la desigualdad creada en la comuna, pero eso queda propuesto para una investigación futura.
+
+Finalmente, si se toma como punto de análisis el índice de Moran, se puede ver que en esta comuna no existe una alta correlación, dada por el valor promedio de 0.2167, pero aún así existen algunos valores que tienen un indice local cercano a 1, por lo que en algunas manzanas de la comuna existe alta correlación, pero en otras no, lo cual puede estar ligado a la desigualdad mencionada anteriormente.
