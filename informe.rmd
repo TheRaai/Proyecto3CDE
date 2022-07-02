@@ -1,0 +1,108 @@
+---
+title: "Análisis variación de precios de casas en Peñalolen"
+output:
+    bookdown::html_document2:
+    fig_caption: yes
+date: "`r Sys.Date()`"
+author: "Tomás Cantuarias - Raimundo Moraga - Victor Valero"
+knit: (function(inputFile,encoding) {rmarkdown::render(inputFile,encoding=encoding,output_file=file.path(dirname(inputFile),'index.html'))})
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load(sf, stats, tidyverse, dplyr)
+
+
+mapa <- read_sf("RM_SII_CBR2/RM_SII_CBR2.shp")
+
+mapa_pennalolen <- filter(mapa, COMUNA == "PENALOLEN")
+
+mapa_pennalolen <- distinct(mapa_pennalolen) #se eliminan filas repetidas
+
+as.data.frame(colnames(mapa_pennalolen))
+
+mapa_pennalolen <- subset(mapa_pennalolen, select = -c(40, 41)) # Se eliminan columnas casi vacías
+
+mapa_pennalolen <- subset(mapa_pennalolen, select = -c(23,24,25,26,27,28,29,30)) #se eliminan columnas referentes al conservador de bienes raices
+mapa_pennalolen <-subset(mapa_pennalolen, select = -c(1,3,27,28)) #se eliminan las columnas comuna
+
+#Se asume que las en la columna depto casa los valores == 0 son las casas
+mapa_pennalolen <- filter(mapa_pennalolen, DPTO_CASA==0)
+mean(mapa_pennalolen$Score)
+mapa_pennalolen <-subset(mapa_pennalolen, select = -c(1)) #se elimina score por tener el mismo valor en todas las variables
+
+precio_casa <- mapa_pennalolen %>% select( UF_TRANS, Ten_Metro,Ten_MetroC) %>% st_drop_geometry()
+precio_casa_cole <- mapa_pennalolen %>% select( UF_TRANS, COLE_10MIN,COLE_15MIN) %>% st_drop_geometry()
+```
+
+```{=html}
+<style> 
+body {
+text-align: justify}
+</style>
+<!-- Para tener el texto justificado--> 
+```
+
+## Introducción {.unnumbered}
+
+Dentro de Santiago, los precios de las viviendas siguen una distribución espacial importante que responde a diferentes atributos de la ciudad, tal como acceso a educación, trabajo, salud, movilidad u otros. Es por esto que es importante hacer un análisis de los precios en las distintas zonas de la ciudad para poder entender mejor cómo afectan estos atributos al momento de escoger un lugar donde comprar un hogar. 
+
+En este informe se analizará en particular la comuna de Peñalolen, ubicada en el sector oriente sur del país, la cual tiene una población aproximada de 266.000 habitantes ([Datos](https://www.bcn.cl/siit/reportescomunales/comunas_v.html?anno=2020&idcom=13122)) y un terreno de 54 $Km^2$. Para propósitos de este análisis, se verá el efecto de las siguientes variables en el precio de casas en esta comuna, datos que se consiguieron [acá](https://www.dropbox.com/s/y04hfus7ynikl4s/RM_SII_CBR2.rar?dl=0):
+
+* Cercanía al metro
+* Índice de Moran
+* Cercanía a establecimientos educacionales
+
+Además de poder ver cómo afectan estas variables al momento de segmentar la comuna y crear distintos clusters de casas, las cuales se unirán utilizando estas variables, y el precio de estas para poder tener un mejor entendimiento sobre esta comuna y los precios de las viviendas.
+
+Para ver esto, se tomaron los datos y se eliminaron las distintas columnas que no son de nuestro interés, dejando las que demuestran el precio de la compra, cercanía al metro y cercanía a establecimientos educacionales.
+
+## Datos {.unnumbered}
+
+Como primer paso, se hizo una segmentación de los datos utilizando kmeans, y un $k=10$ para crear 10 clusters, en donde se toma como variables el precio de las casas, la cercanía a un metro a menos de 15 min, y la cercanía a menos de 5 min. Esto se puede ver en el gráfico \@ref(fig:clus1)
+
+```{r clus1,fig.cap="Cluster inicial",echo=FALSE}
+clusters_k2 <- kmeans(precio_casa, 10)
+
+# creamos la variable cluster en el conjunto nc
+mapa_pennalolen$cluster_kmeans2 <- as.factor(clusters_k2$cluster)
+
+# visualizamos
+ggplot(mapa_pennalolen) +
+  geom_sf(aes(fill = cluster_kmeans2,color=cluster_kmeans2))+labs(fill="Clusters",color="Clusters")
+```
+
+Como se puede ver, la segmentación no es muy efectiva ya que los clusters no son tan equitativos, esto se puede dar por la diferencia de valores en el precio mayoritariamente, ya que el valor mínimo de UF es 215, y el mayor 46.987, lo cual causa una gran diferencia, y es por esto que muchos datos se agrupan en un par de clusters, por lo que se decide escalar los datos para que puedan estar más equilibrados, y esto se puede ver en el gráfico \@ref(fig:clus2)
+
+```{r clus2,fig.cap="Cluster escalado metro",echo=FALSE}
+scaled_precio_casa <- scale(precio_casa)
+
+clusters_k_sc2 <- kmeans(scaled_precio_casa, 10)
+
+mapa_pennalolen$cluster_kmeans_sc2 <- as.factor(clusters_k_sc2$cluster)
+
+ggplot(mapa_pennalolen) +
+  geom_sf(aes(fill = cluster_kmeans_sc2,color=cluster_kmeans_sc2))+labs(fill="Clusters",color="Clusters")
+```
+
+En este caso, se ve que también existe una disparidad entre los clusters, siendo uno de los clusters el que más se repite, lo cual tiene sentido ya que tiene un centro mucho mayor al resto, donde 8 de los 10 clusters tienen centroides en un rango de $[-2,2]$ y uno de ellos tiene un centroide igual a 14 en la variable de precio. Esto demuestra que existe una alta disparidad en los valores de las casas de peñalolen, esto se puede ver gracias a la desigualdad que existe en la comuna, lo cual se puede ver con el coeficiente GINI de esta comuna que es cercano a 0.5 ([datos](https://repositorio.cepal.org/bitstream/handle/11362/47082/4/RVE133_Candia.pdf)) 
+
+Luego de esto, se procede a hacer segmentación de los datos por distancia a un colegio, para revisar cómo cambian los clusters al analizar esta variable vs cercanía a metro. Se hizo el mismo procedimiento de escalar los datos, para luego aplicar kmeans con el mismo k anterior. Esto se puede ver en el gráfico \@ref(fig:clus3)
+
+```{r clus3,fig.cap="Cluster por cercanía colegio",echo=FALSE}
+scaled_precio_casa_cole <- scale(precio_casa_cole)
+
+clusters_k_sc_cole <- kmeans(scaled_precio_casa_cole, 10)
+
+mapa_pennalolen$cluster_kmeans_sc_cole <- as.factor(clusters_k_sc_cole$cluster)
+
+ggplot(mapa_pennalolen) +
+  geom_sf(aes(fill = cluster_kmeans_sc_cole,color=cluster_kmeans_sc_cole))+labs(fill="Clusters",color="Clusters")
+```
+
+Al analizar los clusters, se puede ver que la segmentación es bien parecida a la creada por las cercanías al metro, por lo que se podría decir que tienen un peso parecido al momento de dictar el precio de una casa.
+
+Por último se crea un gráfico de densidad del índice local de moran para las casas, el cual ya está calculado previamente en los datos utilizados, para poder analizar la variación de este índice, y ver cuál es el valor que se repite más. Esto se puede ver en el gráfico \@ref(fig:moran)
+
+```{r moran, fig.cap="Densidad indice de Moran",echo=FALSE}
+plot(density(mapa_pennalolen$IMORANCASA),main="Densidad indice de Moran")
+```
